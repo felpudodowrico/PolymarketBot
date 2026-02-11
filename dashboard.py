@@ -1,10 +1,18 @@
-# dashboard.py
 import time
 from datetime import datetime
+import os
+import platform
+
+def clear_screen():
+    # Detecta sistema y limpia pantalla
+    if platform.system() == "Windows":
+        os.system("cls")
+    else:
+        os.system("clear")
 
 def display_market_live(market, parse_outcomes_fn):
     outcomes = parse_outcomes_fn(market)
-    print("=== Mercado Polymarket multi-outcome encontrado ===")
+    print("=== Mercado Polymarket encontrado ===")
     print(f"ID: {market.get('id')}")
     print(f"Pregunta: {market.get('question')}")
     print(f"Liquidity: {market.get('liquidityNum')}")
@@ -12,13 +20,17 @@ def display_market_live(market, parse_outcomes_fn):
     print(f"Outcomes: {[o.get('outcome', 'N/A') for o in outcomes]}")
     print(f"Best Bid: {market.get('bestBid')}")
     print(f"Best Ask: {market.get('bestAsk')}")
-    #if "clobTokenIds" in market:
-        #print(f"Token IDs: {market['clobTokenIds']}")
-    #print("------------------------\n")
+    # Si quieres ver tokens, descomenta:
+    # if "clobTokenIds" in market:
+    #     print(f"Token IDs: {market['clobTokenIds']}")
+    print("-"*60)
 
 def print_scan_stats(stats, idx, total_filtered):
     uptime = int(time.time() - stats["start_time"])
-
+    
+    # Limpia pantalla antes de mostrar stats
+    clear_screen()
+    
     print("\n" + "=" * 60)
     print("📊 ESTADÍSTICAS DEL SCANNER")
     print("=" * 60)

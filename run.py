@@ -4,7 +4,6 @@ import config
 
 if __name__ == "__main__":
     scanner = EventScannerGamma(
-        limit=config.LIMIT_EVENTS,
         min_liquidity=config.MIN_LIQUIDITY,
         min_volume=config.MIN_VOLUME,
         categories=config.CATEGORIES,

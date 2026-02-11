@@ -6,11 +6,10 @@ from typing import List, Dict, Optional
 from dashboard import display_market_live, print_scan_stats
 
 class EventScannerGamma:
-    BASE_URL = "https://gamma-api.polymarket.com/events"
+    BASE_URL = "https://gamma-api.polymarket.com/events?active=true&closed=false&order=volume24hr&ascending=false&limit=500"
 
     def __init__(
         self,
-        limit: int,
         min_liquidity: float,
         min_volume: float,
         categories: Optional[List[str]],
@@ -20,7 +19,6 @@ class EventScannerGamma:
         max_snapshots: Optional[int]
     ):
         # Configuración
-        self.limit = limit
         self.min_liquidity = min_liquidity
         self.min_volume = min_volume
         self.categories = categories
@@ -41,9 +39,8 @@ class EventScannerGamma:
         }
 
     def fetch_events(self) -> List[Dict]:
-        params = {"limit": self.limit, "active": "true"}
         try:
-            response = requests.get(self.BASE_URL, params=params, timeout=10)
+            response = requests.get(self.BASE_URL, timeout=10)
             response.raise_for_status()
             data = response.json()
             if isinstance(data, list):
