@@ -212,6 +212,75 @@ class HybridStrategy:
     
 
     # ---------------- ESTRATEGIAS ----------------
+    def contrarian_strategy(self, snapshot, market_id, outcome_side="yes"):
+        # SOLO operamos YES para no duplicar señales.
+        # Si quieres, puedes invertir la lógica para NO, pero no ambas.
+        if outcome_side != "yes":
+            return
+
+        if not self.can_trade(market_id, outcome_side, "contrarian"):
+            return
+
+        # ====== extraer precios reales ======
+        bid = float(snapshot.get("bestBid_yes") or 0)
+        ask = float(snapshot.get("bestAsk_yes") or 0)
+
+        # Si no hay book real, fuera
+        if bid <= 0 or ask <= 0:
+            return
+        if ask <= bid:
+                return
+    
+        # Spread absoluto y relativo
+        spread = ask - bid
+        mid = (bid + ask) / 2
+        rel_spread = spread / max(mid, 1e-9)
+
+        # ====== filtros anti-basura ======
+        liq = float(snapshot.get("liquidity") or 0)
+        vol = float(snapshot.get("volume") or 0)
+
+        # No operar en mercados sin actividad
+        if liq < max(25, config.MIN_LIQUIDITY):
+            return
+        if vol < max(200, config.MIN_VOLUME):
+            return
+
+        # No operar si el spread es asqueroso
+        # (en extremos suele ser brutal)
+        if spread > 0.04:
+            return
+        if rel_spread > 0.08:
+            return
+
+        # No operar en precios demasiado extremos
+        # porque el "reversal" suele no existir y te comes drift
+        if ask < 0.05 or bid > 0.95:
+            return
+
+        # ====== lógica contrarian "buena" ======
+        # En contrarian REAL:
+        # - si el mercado está "demasiado caro", vendes a BID (lo que te pagan)
+        # - si está "demasiado barato", compras a ASK (lo que pagas)
+
+        # Umbrales (ajústalos)
+        SELL_LEVEL = 0.78
+        BUY_LEVEL  = 0.22
+
+        # Evita comprar barato si el bid es 0 (mercado muerto)
+        if bid < 0.01:
+            return
+
+        # Si ask está MUY bajo -> comprar (pero pagando ask)
+        if ask <= BUY_LEVEL:
+        self.place_order(market_id, "yes", "buy", "contrarian", snapshot)
+
+        # Si bid está MUY alto -> vender (pero vendiendo al bid)
+        elif bid >= SELL_LEVEL:
+        self.place_order(market_id, "yes", "sell", "contrarian", snapshot)
+    
+    
+    
     def contrarian_strategy(self, snapshot, market_id, outcome_side):
         if not self.can_trade(market_id, outcome_side, "contrarian"):
             return
@@ -302,4 +371,5 @@ if __name__ == "__main__":
     )
     threading.Thread(target=scanner.live_scan, daemon=True).start()
     hs = HybridStrategy(scanner)
+
     hs.run()
