@@ -273,11 +273,11 @@ class HybridStrategy:
 
         # Si ask está MUY bajo -> comprar (pero pagando ask)
         if ask <= BUY_LEVEL:
-        self.place_order(market_id, "yes", "buy", "contrarian", snapshot)
+            self.place_order(market_id, "yes", "buy", "contrarian", snapshot)
 
         # Si bid está MUY alto -> vender (pero vendiendo al bid)
         elif bid >= SELL_LEVEL:
-        self.place_order(market_id, "yes", "sell", "contrarian", snapshot)
+            self.place_order(market_id, "yes", "sell", "contrarian", snapshot)
     
     
     
@@ -373,3 +373,4 @@ if __name__ == "__main__":
     hs = HybridStrategy(scanner)
 
     hs.run()
+
