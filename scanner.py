@@ -1,4 +1,5 @@
 # scanner.py
+
 import requests
 import json
 import time
@@ -102,32 +103,24 @@ class EventScannerGamma:
                 self.history[market_id] = self.history[market_id][-self.max_snapshots:]
 
     def live_scan(self):
-        idx = 0
         while True:
             self.stats["loops"] += 1
-
+    
             events = self.fetch_events()
             self.stats["total_events_downloaded"] = len(events)
-
+    
             filtered = self.filter_markets(events)
             self.stats["total_markets_after_filter"] = len(filtered)
-
+    
             if not filtered:
                 print("No se encontraron mercados aptos.")
                 time.sleep(self.fetch_delay)
                 continue
-
-            if idx >= len(filtered):
-                idx = 0
-
-            market = filtered[idx]
-            idx += 1
-
-            self.stats["markets_displayed"] += 1
-            self.stats["unique_markets_displayed"].add(str(market.get("id", "N/A")))
-
-            # Mostrar stats + mercado
-            print_scan_stats(self.stats, idx=idx, total_filtered=len(filtered))
-            display_market_live(market, self.parse_outcomes)
-            self.update_history([market])
+    
+            # Actualizar todos los mercados a la vez
+            self.update_history(filtered)
+    
+            # Mostrar mercado/dash solo para el primero, opcional
+            #display_market_live(filtered[0], self.parse_outcomes)
+    
             time.sleep(self.display_delay)

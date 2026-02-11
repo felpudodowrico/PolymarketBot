@@ -1,4 +1,5 @@
 # run.py
+
 from scanner import EventScannerGamma
 import config
 
