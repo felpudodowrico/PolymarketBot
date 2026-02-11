@@ -78,38 +78,38 @@ class HybridStrategy:
         o["executed_ts"] = time.time()
         self.completed_orders.append(o)
 
-def display_dashboard(self):
-    clear_screen()
-    uptime = int(time.time() - self.start_time)
-    total_orders = len(self.completed_orders) + len(self.active_orders)
-    executed_orders = len(self.completed_orders)
-    total_pnl = sum(self.pnl.values())
-    success_rate = (executed_orders / total_orders * 100) if total_orders > 0 else 0
-
-    # Métricas de scanner
-    total_markets = len(self.scanner.history)
-    total_snapshots = sum(len(snapshots) for snapshots in self.scanner.history.values())
-    # Número de snapshots añadidos desde el último paso
-    snapshots_this_step = total_snapshots - getattr(self, 'last_total_snapshots', 0)
-    self.last_total_snapshots = total_snapshots
-
-    print("="*100)
-    print("📊 HYBRID STRATEGY DASHBOARD (SIMULACIÓN REALISTA)")
-    print("="*100)
-    print(f"⏱️ Uptime: {uptime}s | 🟢 Órdenes activas: {len(self.active_orders)} | ✅ Ejecutadas: {executed_orders}")
-    print(f"💹 PnL total: {round(total_pnl,2)} | 📊 Ratio de éxito: {round(success_rate,2)}%")
-    print(f"🧐 Mercados escaneados: {total_markets} | Snapshots totales: {total_snapshots} | Snapshots en este paso: {snapshots_this_step}")
-    print("-"*100)
-    print("PnL por estrategia:")
-    for s, v in self.pnl.items():
-        print(f" {s}: {round(v,2)}")
-    print("-"*100)
-    print(f"Últimas {DASHBOARD_HISTORY} operaciones ejecutadas:")
-    for o in self.completed_orders[-DASHBOARD_HISTORY:]:
-        print(f"[{time.strftime('%H:%M:%S', time.localtime(o['executed_ts']))}] "
-              f"{o['strategy'].upper():10} | {o['side']:4} | Q: {o['question'][:50]:50} | "
-              f"Cierre: {o['closeTime']} | Entrada: {o['price_executed']:.2f} | Salida: {o['exit_price']:.2f} | PnL: {o['pnl']:.2f}")
-    print("="*100+"\n")
+    def display_dashboard(self):
+        clear_screen()
+        uptime = int(time.time() - self.start_time)
+        total_orders = len(self.completed_orders) + len(self.active_orders)
+        executed_orders = len(self.completed_orders)
+        total_pnl = sum(self.pnl.values())
+        success_rate = (executed_orders / total_orders * 100) if total_orders > 0 else 0
+    
+        # Métricas de scanner
+        total_markets = len(self.scanner.history)
+        total_snapshots = sum(len(snapshots) for snapshots in self.scanner.history.values())
+        # Número de snapshots añadidos desde el último paso
+        snapshots_this_step = total_snapshots - getattr(self, 'last_total_snapshots', 0)
+        self.last_total_snapshots = total_snapshots
+    
+        print("="*100)
+        print("📊 HYBRID STRATEGY DASHBOARD (SIMULACIÓN REALISTA)")
+        print("="*100)
+        print(f"⏱️ Uptime: {uptime}s | 🟢 Órdenes activas: {len(self.active_orders)} | ✅ Ejecutadas: {executed_orders}")
+        print(f"💹 PnL total: {round(total_pnl,2)} | 📊 Ratio de éxito: {round(success_rate,2)}%")
+        print(f"🧐 Mercados escaneados: {total_markets} | Snapshots totales: {total_snapshots} | Snapshots en este paso: {snapshots_this_step}")
+        print("-"*100)
+        print("PnL por estrategia:")
+        for s, v in self.pnl.items():
+            print(f" {s}: {round(v,2)}")
+        print("-"*100)
+        print(f"Últimas {DASHBOARD_HISTORY} operaciones ejecutadas:")
+        for o in self.completed_orders[-DASHBOARD_HISTORY:]:
+            print(f"[{time.strftime('%H:%M:%S', time.localtime(o['executed_ts']))}] "
+                  f"{o['strategy'].upper():10} | {o['side']:4} | Q: {o['question'][:50]:50} | "
+                  f"Cierre: {o['closeTime']} | Entrada: {o['price_executed']:.2f} | Salida: {o['exit_price']:.2f} | PnL: {o['pnl']:.2f}")
+        print("="*100+"\n")
 
     # ================= Estrategias ===================
     def contrarian_strategy(self, market, outcome, market_id, outcome_id):
