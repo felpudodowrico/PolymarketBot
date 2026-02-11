@@ -278,22 +278,7 @@ class HybridStrategy:
         # Si bid está MUY alto -> vender (pero vendiendo al bid)
         elif bid >= SELL_LEVEL:
             self.place_order(market_id, "yes", "sell", "contrarian", snapshot)
-    
-    
-    
-    def contrarian_strategy(self, snapshot, market_id, outcome_side):
-        if not self.can_trade(market_id, outcome_side, "contrarian"):
-            return
-        price = self.mid_price(snapshot, outcome_side)
-    
-        # contrarian:
-        # si YES está carísimo -> vende YES
-        # si YES está baratísimo -> compra YES
-        # para NO aplica igual (pero es redundante)
-        if price > 0.75:
-            self.place_order(market_id, outcome_side, "sell", "contrarian", snapshot)
-        elif price < 0.25:
-            self.place_order(market_id, outcome_side, "buy", "contrarian", snapshot)
+
 
     def scalping_strategy(self, snapshot, market_id, outcome_side):
         if not self.can_trade(market_id, outcome_side, "scalping"):
@@ -373,4 +358,5 @@ if __name__ == "__main__":
     hs = HybridStrategy(scanner)
 
     hs.run()
+
 
