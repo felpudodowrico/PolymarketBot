@@ -2,15 +2,34 @@
 import requests
 import json
 import time
-import random
-import time
-from datetime import datetime
 from typing import List, Dict, Optional
+from dashboard import display_market_live, print_scan_stats
 
 class EventScannerGamma:
     BASE_URL = "https://gamma-api.polymarket.com/events"
 
-    def __init__(self):
+    def __init__(
+        self,
+        limit: int,
+        min_liquidity: float,
+        min_volume: float,
+        categories: Optional[List[str]],
+        multi_outcome: bool,
+        display_delay: int,
+        fetch_delay: int,
+        max_snapshots: Optional[int]
+    ):
+        # Configuración
+        self.limit = limit
+        self.min_liquidity = min_liquidity
+        self.min_volume = min_volume
+        self.categories = categories
+        self.multi_outcome = multi_outcome
+        self.display_delay = display_delay
+        self.fetch_delay = fetch_delay
+        self.max_snapshots = max_snapshots
+
+        # Datos históricos y estadísticas
         self.history = {}  # market_id -> list[snapshots]
         self.stats = {
             "start_time": time.time(),
@@ -20,15 +39,9 @@ class EventScannerGamma:
             "markets_displayed": 0,
             "unique_markets_displayed": set(),
         }
-    
-    def fetch_events(self, limit: int = 50, active: bool = True) -> List[Dict]:
-        """
-        Obtiene eventos desde Gamma API.
-        """
-        params = {
-            "limit": limit,
-            "active": str(active).lower(),
-        }
+
+    def fetch_events(self) -> List[Dict]:
+        params = {"limit": self.limit, "active": "true"}
         try:
             response = requests.get(self.BASE_URL, params=params, timeout=10)
             response.raise_for_status()
@@ -43,41 +56,20 @@ class EventScannerGamma:
             return []
 
     def parse_outcomes(self, market: Dict) -> List[Dict]:
-        """
-        Asegura que outcomes siempre sean lista de dicts.
-        """
         outcomes = market.get("outcomes", [])
         if isinstance(outcomes, str):
             try:
                 outcomes = json.loads(outcomes)
-                # asegurarse que cada item es dict con clave 'outcome'
-                outcomes = [
-                    o if isinstance(o, dict) else {"outcome": str(o)}
-                    for o in outcomes
-                ]
+                outcomes = [o if isinstance(o, dict) else {"outcome": str(o)} for o in outcomes]
             except json.JSONDecodeError:
                 outcomes = []
         elif isinstance(outcomes, list):
-            # asegurarse que cada item es dict con clave 'outcome'
-            outcomes = [
-                o if isinstance(o, dict) else {"outcome": str(o)}
-                for o in outcomes
-            ]
+            outcomes = [o if isinstance(o, dict) else {"outcome": str(o)} for o in outcomes]
         else:
             outcomes = []
         return outcomes
 
-    def filter_markets(
-        self,
-        events: List[Dict],
-        min_liquidity: float = 50,
-        min_volume: float = 5000,
-        categories: Optional[List[str]] = None,
-        multi_outcome: bool = True
-    ) -> List[Dict]:
-        """
-        Filtra mercados dentro de los eventos según parámetros.
-        """
+    def filter_markets(self, events: List[Dict]) -> List[Dict]:
         filtered = []
         for event in events:
             markets = event.get("markets", [])
@@ -87,83 +79,45 @@ class EventScannerGamma:
                 outcomes = self.parse_outcomes(m)
                 category = event.get("tags", [""])[0] if event.get("tags") else ""
 
-                if liquidity < min_liquidity or volume < min_volume:
+                if liquidity < self.min_liquidity or volume < self.min_volume:
                     continue
-                if categories and category.lower() not in [c.lower() for c in categories]:
+                if self.categories and category.lower() not in [c.lower() for c in self.categories]:
                     continue
-                if multi_outcome and len(outcomes) <= 2:
+                if self.multi_outcome and len(outcomes) <= 2:
                     continue
                 filtered.append(m)
         return filtered
 
-    def display_market_live(self, market: Dict):
-        """
-        Muestra un mercado en pantalla.
-        """
-        outcomes = self.parse_outcomes(market)
-        print("=== Mercado Polymarket multi-outcome encontrado ===")
-        print(f"ID: {market.get('id')}")
-        print(f"Pregunta: {market.get('question')}")
-        print(f"Liquidity: {market.get('liquidityNum')}")
-        print(f"Volume: {market.get('volume')}")
-        print(f"Outcomes: {[o.get('outcome', 'N/A') for o in outcomes]}")
-        print(f"Best Bid: {market.get('bestBid')}")
-        print(f"Best Ask: {market.get('bestAsk')}")
-        if "clobTokenIds" in market:
-            print(f"Token IDs: {market['clobTokenIds']}")
-        print("------------------------\n")
-
     def update_history(self, markets):
-        """
-        Guarda snapshots históricos por market_id.
-        Estructura:
-            self.history[market_id] = [
-                {snapshot1},
-                {snapshot2},
-                ...
-            ]
-        """
-
         now = time.time()
-
         for m in markets:
             market_id = str(m.get("id") or m.get("conditionId") or "unknown")
-
             liquidity = float(m.get("liquidityNum") or m.get("liquidity") or 0)
             volume = float(m.get("volumeNum") or m.get("volume") or 0)
-
-            record = {
-                "ts": now,
-                "liquidity": liquidity,
-                "volume": volume,
-                "question": m.get("question", ""),
-            }
+            record = {"ts": now, "liquidity": liquidity, "volume": volume, "question": m.get("question", "")}
 
             if market_id not in self.history:
                 self.history[market_id] = []
 
             self.history[market_id].append(record)
 
-            # Para no comernos RAM en Termux:
-            # dejamos máximo 300 snapshots por mercado (~10 min si refrescas cada 2s)
-            if len(self.history[market_id]) > 300:
-                self.history[market_id] = self.history[market_id][-300:]
-    
-    def live_scan(self, limit: int = 50, min_liquidity: float = 1000):
-        idx = 0
+            if self.max_snapshots is not None and len(self.history[market_id]) > self.max_snapshots:
+                self.history[market_id] = self.history[market_id][-self.max_snapshots:]
 
+    def live_scan(self):
+        idx = 0
         while True:
             self.stats["loops"] += 1
- 
-            events = self.fetch_events(limit=limit)
+
+            events = self.fetch_events()
             self.stats["total_events_downloaded"] = len(events)
 
-            filtered = self.filter_markets(events, min_liquidity=min_liquidity)
+            filtered = self.filter_markets(events)
             self.stats["total_markets_after_filter"] = len(filtered)
-    
+
             if not filtered:
                 print("No se encontraron mercados aptos.")
-                time.sleep(2)
+                time.sleep(self.fetch_delay)
                 continue
 
             if idx >= len(filtered):
@@ -171,35 +125,12 @@ class EventScannerGamma:
 
             market = filtered[idx]
             idx += 1
-    
-            # stats de display
+
             self.stats["markets_displayed"] += 1
             self.stats["unique_markets_displayed"].add(str(market.get("id", "N/A")))
 
-            # mostrar stats + mercado
-            self.print_scan_stats(idx=idx, total_filtered=len(filtered))
-            self.display_market_live(market)
+            # Mostrar stats + mercado
+            print_scan_stats(self.stats, idx=idx, total_filtered=len(filtered))
+            display_market_live(market, self.parse_outcomes)
             self.update_history([market])
-
-            time.sleep(1)
-        
-    def print_scan_stats(self, idx: int, total_filtered: int):
-        uptime = int(time.time() - self.stats["start_time"])
-
-        print("\n" + "=" * 60)
-        print("📊 ESTADÍSTICAS DEL SCANNER")
-        print("=" * 60)
-        print(f"⏱️  Uptime: {uptime}s")
-        print(f"🕒 Ahora: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
-        print(f"🔁 Loops: {self.stats['loops']}")
-        print(f"⬇️  Eventos descargados (último fetch): {self.stats['total_events_downloaded']}")
-        print(f"✅ Mercados tras filtro: {total_filtered}")
-        print(f"📺 Mercados mostrados: {self.stats['markets_displayed']}")
-        print(f"🧠 Mercados únicos mostrados: {len(self.stats['unique_markets_displayed'])}")
-        print(f"➡️  Posición actual: {idx}/{total_filtered}")
-        print("=" * 60 + "\n")
-        
-if __name__ == "__main__":
-    scanner = EventScannerGamma()
-    print("Escaneando mercados activos desde Gamma /events...")
-    scanner.live_scan(limit=1000, min_liquidity=10)
+            time.sleep(self.display_delay)
