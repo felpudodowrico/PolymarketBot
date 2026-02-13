@@ -7,9 +7,13 @@ import threading
 from dataclasses import dataclass
 from typing import Dict, Optional, List, Tuple
 
+def clamp(x: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, x))
+
 # =========================
 # CONFIG
 # =========================
+
 
 @dataclass
 class MomentumConfig:
@@ -451,43 +455,56 @@ class MomentumMicroBot:
         self._log("Bot detenido.")
         
         
-        # =========================
+# =========================
 # STANDALONE RUNNER
 # =========================
 
 if __name__ == "__main__":
-    import threading
     import signal
+    import threading
 
-    # Importa tu scanner real
     from scanner import EventScannerGamma
+
+    from config import (
+        MOM_LOOKBACK_SEC,
+        MOM_MIN_MOVE,
+        MOM_MIN_IMBALANCE,
+        MOM_MAX_SPREAD,
+        MOM_MIN_LIQUIDITY,
+        MOM_MARKET_COOLDOWN_SEC,
+        MOM_STAKE_USD,
+        MOM_TAKE_PROFIT,
+        MOM_STOP_LOSS,
+        MOM_MAX_HOLD_SEC,
+        MOM_ENTRY_MODE,
+        MOM_LIVE,
+        MOM_DEBUG,
+    )
 
     scanner = EventScannerGamma()
 
     cfg = MomentumConfig(
-        lookback_sec=2.5,
-        min_move=0.004,
-        min_imbalance=0.58,
-        max_spread=0.020,
-        min_liquidity=1000,
-        market_cooldown_sec=12,
-        stake_usd=8.0,
-        take_profit=0.006,
-        stop_loss=0.007,
-        max_hold_sec=25.0,
-        entry_mode="maker",
-        live=False,   # SIEMPRE primero paper
-        debug=True,
+        lookback_sec=MOM_LOOKBACK_SEC,
+        min_move=MOM_MIN_MOVE,
+        min_imbalance=MOM_MIN_IMBALANCE,
+        max_spread=MOM_MAX_SPREAD,
+        min_liquidity=MOM_MIN_LIQUIDITY,
+        market_cooldown_sec=MOM_MARKET_COOLDOWN_SEC,
+        stake_usd=MOM_STAKE_USD,
+        take_profit=MOM_TAKE_PROFIT,
+        stop_loss=MOM_STOP_LOSS,
+        max_hold_sec=MOM_MAX_HOLD_SEC,
+        entry_mode=MOM_ENTRY_MODE,
+        live=MOM_LIVE,
+        debug=MOM_DEBUG,
     )
 
     bot = MomentumMicroBot(scanner, cfg)
 
     scan_thread = threading.Thread(target=scanner.live_scan, daemon=True)
-    #dash_thread = threading.Thread(target=scanner.display_dashboard, daemon=True)
     bot_thread = threading.Thread(target=bot.run, daemon=True)
 
     scan_thread.start()
-    #dash_thread.start()
     bot_thread.start()
 
     def signal_handler(sig, frame):
@@ -498,7 +515,6 @@ if __name__ == "__main__":
 
     signal.signal(signal.SIGINT, signal_handler)
 
-    # Mantener vivo el proceso
     while True:
         time.sleep(1)
 
