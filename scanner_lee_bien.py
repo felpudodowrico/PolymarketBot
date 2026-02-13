@@ -1,4 +1,4 @@
-# scanner.py (ARBITRAGE OPTIMIZED - MOMENTUM READY)
+# scanner.py (ARBITRAGE OPTIMIZED - ARBITRAGE FILTERED)
 
 import requests
 import json
@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import MIN_LIQUIDITY, MIN_VOLUME, CATEGORIES, MULTI_OUTCOME, MAX_SPREAD_FILTER
 
 # =======================
-# CONFIG
+# ARBITRAGE CONFIG
 # =======================
 
 TOP_N_ORDERBOOK = 40
@@ -46,13 +46,6 @@ def safe_float(x, default=0.0) -> float:
     except Exception:
         return default
 
-def clamp(x: float, lo: float, hi: float) -> float:
-    if x < lo:
-        return lo
-    if x > hi:
-        return hi
-    return x
-
 # ---------------- SCANNER ----------------
 class EventScannerGamma:
     def __init__(
@@ -65,7 +58,7 @@ class EventScannerGamma:
         orderbook_cooldown: float = ORDERBOOK_COOLDOWN_SEC,
         max_snapshots: int = MAX_SNAPSHOTS_PER_MARKET,
         clob_workers: int = CLOB_MAX_WORKERS,
-        max_spread: float = MAX_SPREAD_FILTER,
+        max_spread: float = MAX_SPREAD_FILTER, 
     ):
         self.min_liquidity = float(min_liquidity)
         self.min_volume = float(min_volume)
@@ -76,22 +69,15 @@ class EventScannerGamma:
         self.orderbook_cooldown = float(orderbook_cooldown)
         self.max_snapshots = int(max_snapshots)
         self.clob_workers = int(clob_workers)
-
-        # Métrica arbitraje (NO afecta al histórico)
-        self.arb_opportunities_count = 0
-
-        # Mejor "casi-arb" visto
+        self.arb_opportunities_count = 0  # contador de snapshots válidos (arbitraje)
         self.closest_arb = {
             "spread": float("inf"),
             "market": None,
             "snapshot": None
         }
-        self.max_spread = float(max_spread)
+        self.max_spread = float(max_spread)  
 
-        # Historial por market_id
         self.history: Dict[str, List[Dict]] = {}
-
-        # Cache orderbooks
         self.orderbook_cache: Dict[str, Dict] = {}
         self.orderbook_last_fetch: Dict[str, float] = {}
 
@@ -243,13 +229,10 @@ class EventScannerGamma:
             with self.lock:
                 self.clob_response_ms = (time.time() - start) * 1000.0
 
-    # ---------------- BEST BID/ASK (RELAXED) ----------------
+    # ---------------- BEST BID/ASK (FILTRADO ARBITRAJE) ----------------
     def best_bid_ask(self, book: Dict) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
-        # OJO:
-        # - Para momentum micro NO quieres matar extremos 0.02 / 0.98.
-        # - Pero tampoco quieres basura 0.00 / 1.00.
-        bids = [b for b in (book.get("bids") or []) if safe_float(b.get("price")) >= 0.01]
-        asks = [a for a in (book.get("asks") or []) if safe_float(a.get("price")) <= 0.99]
+        bids = [b for b in (book.get("bids") or []) if safe_float(b.get("price")) >= 0.05]
+        asks = [a for a in (book.get("asks") or []) if safe_float(a.get("price")) <= 0.95]
 
         if not bids or not asks:
             return None, None, None, None
@@ -263,35 +246,6 @@ class EventScannerGamma:
             safe_float(a0.get("price")),
             safe_float(a0.get("size")),
         )
-
-    # ---------------- FEATURES (MOMENTUM) ----------------
-    def compute_mid(self, bid: Optional[float], ask: Optional[float]) -> Optional[float]:
-        if bid is None or ask is None:
-            return None
-        if ask <= 0 or bid <= 0:
-            return None
-        if ask < bid:
-            return None
-        return 0.5 * (bid + ask)
-
-    def compute_imbalance(self, bid_size: Optional[float], ask_size: Optional[float]) -> Optional[float]:
-        if bid_size is None or ask_size is None:
-            return None
-        denom = bid_size + ask_size
-        if denom <= 0:
-            return None
-        return bid_size / denom
-
-    def compute_microprice(self, bid: Optional[float], ask: Optional[float],
-                           bid_size: Optional[float], ask_size: Optional[float]) -> Optional[float]:
-        # microprice ~ (ask * bidSize + bid * askSize) / (bidSize + askSize)
-        # Intuición: si el bid es grande, precio "tiende" a subir, etc.
-        if bid is None or ask is None or bid_size is None or ask_size is None:
-            return None
-        denom = bid_size + ask_size
-        if denom <= 0:
-            return None
-        return (ask * bid_size + bid * ask_size) / denom
 
     # ---------------- FILTER ----------------
     def filter_markets(self, events: List[Dict]) -> List[Dict]:
@@ -335,9 +289,7 @@ class EventScannerGamma:
         if p_yes is None:
             return 0.0
 
-        # Para momentum no me cargo extremos aquí.
-        # Los extremos pueden moverse fuerte en noticias.
-        if p_yes < 0.005 or p_yes > 0.995:
+        if p_yes < 0.01 or p_yes > 0.99:
             return 0.0
 
         center = 1.0 - abs(p_yes - 0.5) * 2.0
@@ -345,7 +297,7 @@ class EventScannerGamma:
 
         return math.log(vol + 1.0) * math.log(liq + 1.0) * center
 
-    # ---------------- UPDATE TOP (MOMENTUM READY) ----------------
+    # ---------------- UPDATE TOP ONLY (FILTRADO ARBITRAJE) ----------------
     def update_top_with_books(self, top_markets: List[Dict]):
         now = time.time()
         market_map = {}
@@ -408,95 +360,25 @@ class EventScannerGamma:
                 if p_yes is None or p_no is None:
                     continue
 
+                by = sy = ay = say = None
+                bn = sn = an = san = None
+
                 book_yes = token_books.get(yes_tid)
                 book_no = token_books.get(no_tid)
 
-                if not book_yes or not book_no:
+                if book_yes:
+                    by, sy, ay, say = self.best_bid_ask(book_yes)
+                if book_no:
+                    bn, sn, an, san = self.best_bid_ask(book_no)
+
+                spread_yes = ay - by if (ay is not None and by is not None) else None
+                spread_no  = an - bn if (an is not None and bn is not None) else None
+                
+                # FILTRO ARBITRAJE
+                if spread_yes is None or spread_no is None:
                     continue
-
-                by, sy, ay, say = self.best_bid_ask(book_yes)
-                bn, sn, an, san = self.best_bid_ask(book_no)
-
-                # Necesitamos bid/ask en ambos lados para features momentum
-                if any(x is None for x in [by, ay, bn, an]):
-                    continue
-
-                spread_yes = ay - by
-                spread_no = an - bn
-
-                # market stats (features útiles)
-                liq = safe_float(m.get("liquidityNum") or m.get("liquidity") or 0)
-                vol = safe_float(m.get("volumeNum") or m.get("volume") or 0)
-
-                # Momentum features
-                mid_yes = self.compute_mid(by, ay)
-                mid_no = self.compute_mid(bn, an)
-
-                imb_yes = self.compute_imbalance(sy, say)
-                imb_no = self.compute_imbalance(sn, san)
-
-                micro_yes = self.compute_microprice(by, ay, sy, say)
-                micro_no = self.compute_microprice(bn, an, sn, san)
-
-                snap = {
-                    "ts": now,
-                    "question": m.get("question", "")[:120],
-
-                    "market_id": market_id,
-
-                    # market stats
-                    "liquidity": liq,
-                    "volume": vol,
-
-                    # gamma mid prices
-                    "p_yes": p_yes,
-                    "p_no": p_no,
-
-                    # token ids
-                    "yes_token_id": yes_tid,
-                    "no_token_id": no_tid,
-
-                    # YES book
-                    "bestBid_yes": by,
-                    "bestAsk_yes": ay,
-                    "bidSize_yes": sy,
-                    "askSize_yes": say,
-
-                    # NO book
-                    "bestBid_no": bn,
-                    "bestAsk_no": an,
-                    "bidSize_no": sn,
-                    "askSize_no": sn,
-                    "askSize_no": san,
-
-                    # spreads
-                    "spread_yes": spread_yes,
-                    "spread_no": spread_no,
-
-                    # momentum features
-                    "mid_yes": mid_yes,
-                    "mid_no": mid_no,
-                    "imbalance_yes": imb_yes,
-                    "imbalance_no": imb_no,
-                    "microprice_yes": micro_yes,
-                    "microprice_no": micro_no,
-                }
-
-                # ---- SAVE HISTORY ALWAYS ----
-                if market_id not in self.history:
-                    self.history[market_id] = []
-                self.history[market_id].append(snap)
-                if len(self.history[market_id]) > self.max_snapshots:
-                    self.history[market_id] = self.history[market_id][-self.max_snapshots:]
-
-                self.snapshots_this_second += 1
-
-                # ---- METRICS: ARB ONLY ----
-                # Contamos "oportunidad" solo como estadística
-                if spread_yes <= self.max_spread and spread_no <= self.max_spread:
-                    self.arb_opportunities_count += 1
-
-                # ---- CLOSEST ARB ----
+                
+                # Actualizamos closest_arb
                 min_spread = min(spread_yes, spread_no)
                 if min_spread < self.closest_arb["spread"]:
                     self.closest_arb["spread"] = min_spread
@@ -510,6 +392,43 @@ class EventScannerGamma:
                         "p_yes": p_yes,
                         "p_no": p_no
                     }
+                
+                # Filtro real de arbitraje
+                if spread_yes > self.max_spread or spread_no > self.max_spread:
+                    continue
+                
+                # Contamos oportunidad de arbitraje válida
+                self.arb_opportunities_count += 1
+
+                snap = {
+                    "ts": now,
+                    "question": m.get("question", "")[:120],
+                    "p_yes": p_yes,
+                    "p_no": p_no,
+                    "yes_token_id": yes_tid,
+                    "no_token_id": no_tid,
+                    "bestBid_yes": by,
+                    "bestAsk_yes": ay,
+                    "bidSize_yes": sy,
+                    "askSize_yes": say,
+                    "bestBid_no": bn,
+                    "bestAsk_no": an,
+                    "bidSize_no": sn,
+                    "askSize_no": san,
+                }
+
+                if market_id not in self.history:
+                    self.history[market_id] = []
+
+                self.history[market_id].append(snap)
+                if len(self.history[market_id]) > self.max_snapshots:
+                    self.history[market_id] = self.history[market_id][-self.max_snapshots:]
+
+                self.snapshots_this_second += 1
+
+            for mid in list(self.history.keys()):
+                if mid not in self.tracked_market_ids:
+                    del self.history[mid]
 
     # ---------------- LIVE SCAN ----------------
     def live_scan(self):
@@ -586,7 +505,7 @@ class EventScannerGamma:
 
             clear_screen()
             print("=" * 95)
-            print("📊 SCANNER REALTIME (MOMENTUM READY)")
+            print("📊 SCANNER REALTIME (ARBITRAGE MODE)")
             print(f"⏱️ Uptime: {uptime}s")
             print(f"🔁 Loops: {self.loops} | {self.loops_per_second} loops/seg")
             print("-" * 95)
@@ -603,7 +522,6 @@ class EventScannerGamma:
             print(f"⏱️ Gamma latency: {gamma_latency:.1f} ms | CLOB latency: {clob_latency:.1f} ms")
             print("=" * 95)
             print(f"⚡ Oportunidades de arbitraje (validas): {self.arb_opportunities_count}")
-
             if self.closest_arb["market"]:
                 m = self.closest_arb["market"]
                 s = self.closest_arb["snapshot"]
@@ -615,9 +533,7 @@ class EventScannerGamma:
 
             if example:
                 print(f"📌 Ejemplo: {example['question']}")
-                print(f"📈 Gamma p_yes: {example['p_yes']:.4f} | p_no: {example['p_no']:.4f}")
-                print(f"📈 mid_yes: {example.get('mid_yes')} | mid_no: {example.get('mid_no')}")
-                print(f"📈 imbalance_yes: {example.get('imbalance_yes')} | imbalance_no: {example.get('imbalance_no')}")
+                print(f"📈 Mid YES: {example['p_yes']:.4f} | NO: {example['p_no']:.4f}")
 
                 if example.get("bestBid_yes") is not None:
                     print("📕 ORDERBOOK REAL (YES/NO):")
